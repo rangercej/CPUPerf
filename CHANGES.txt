@@ -1,0 +1,23 @@
+Changes between 0.02 and 0.03
+-----------------------------
+
+- Tranferred development from Visual C++ 6 to Visual C++ 2005 Express
+
+- Changes to the main service code to fix problems with general service
+  and thread handling:
+	- startCPUPerf() is now started as a thread, so ServiceMain()
+	  can complete correctly (as discussed in the MSDN)
+
+	- Monitor threads are now shut down gracefully with 
+	  WaitForSingleObject and WaitForMultipleObjects
+
+- Changes to all classes to use the secure string handling functions
+  _snprintf_s() instead of _snprintf() etc.
+
+- Class CCPerfMon now recognises more (hopefully all) the error numbers
+  that pdh.lib can raise, so useful error messages a-go-go
+
+- LoadAverage monitor now includes the number of processors installed in
+  a machine when calculating load averages.
+
+- Added this ChangeLog :-)
