@@ -203,6 +203,10 @@
 			Filter="cpp;c;cxx;rc;def;r;odl;idl;hpj;bat"
 			>
 			<File
+				RelativePath=".\CIniFileReader.cpp"
+				>
+			</File>
+			<File
 				RelativePath="CLogger.cpp"
 				>
 				<FileConfiguration
@@ -402,11 +406,19 @@
 					/>
 				</FileConfiguration>
 			</File>
+			<File
+				RelativePath=".\Utility.cpp"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"
 			Filter="h;hpp;hxx;hm;inl"
 			>
+			<File
+				RelativePath=".\CIniFileReader.h"
+				>
+			</File>
 			<File
 				RelativePath="CLogger.h"
 				>
@@ -440,6 +452,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\CPUPerf.h"
+				>
+			</File>
+			<File
 				RelativePath="LinuxLoadAverage.h"
 				>
 			</File>
@@ -447,11 +463,23 @@
 				RelativePath="stdafx.h"
 				>
 			</File>
+			<File
+				RelativePath=".\Utility.h"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Resource Files"
 			Filter="ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe"
 			>
+		</Filter>
+		<Filter
+			Name="Other files"
+			>
+			<File
+				RelativePath=".\CPUPerf.ini"
+				>
+			</File>
 		</Filter>
 	</Files>
 	<Globals>

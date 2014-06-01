@@ -27,19 +27,17 @@
 // 
 ///////////////////////////////////////////////////////////////////////////////
 #include "stdafx.h"
-#include "CMonitorLoadAverage.h"
-#include "CMonitorUptime.h"
-#include "CMonitorCPU.h"
-#include "CMonitorMemory.h"
+#include "CPUPerf.h"
 #include "CLogger.h"
+#include "CMMapFile.h"
+#include "Utility.h"
+#include "Service.h"
 #include <string>
 #include <iostream>
 #include <sstream>
+#include <stdio.h>
 #include <windows.h>
 #include <winsvc.h>
-
-#define SERVICE_NAME				"CPUPerf"
-#define CPUPERF_VERSION			"0.03"
 
 static SERVICE_STATUS			m_ServiceStatus;
 static SERVICE_STATUS_HANDLE	m_ServiceStatusHandle;
@@ -47,6 +45,144 @@ volatile static DWORD			serviceRunState = SERVICE_STOPPED;
 
 static HANDLE						mCPUPerfThread;
 static unsigned int				mCPUPerfThreadID;
+
+static struct s_initdata cpuperfConfig;
+
+//-----------------------------------------------------------------------------
+std::string init()
+{
+	char systemRoot[1024];
+	char valuebuffer[512];
+	char bigBuffer[16384];
+	char ctrValue[10];
+	int i;
+
+	memset (systemRoot, 0, sizeof(systemRoot));
+	memset (valuebuffer, 0, sizeof(valuebuffer));
+	memset (bigBuffer, 0, sizeof(bigBuffer));
+	GetEnvironmentVariable ("SYSTEMROOT", systemRoot, sizeof(systemRoot) - 1);
+
+	strncat_s (systemRoot, "\\CPUPerf", 8);
+	systemRoot[sizeof(systemRoot) - 1] = 0;
+
+	TCHAR szDirectory[MAX_PATH] = "";
+	::GetCurrentDirectory(sizeof(szDirectory) - 1, szDirectory);
+  
+	CreateDirectory (systemRoot, NULL);
+
+	DWORD rv = GetPrivateProfileString ("Init", "pollinterval", "5", valuebuffer, sizeof(valuebuffer), "CPUPerf.ini");
+	cpuperfConfig.pollinterval = atol(valuebuffer);
+	rv = GetPrivateProfileString ("Init", "maxcounters" , "0", valuebuffer, sizeof(valuebuffer), "CPUPerf.ini");
+	cpuperfConfig.maxcounters = atol(valuebuffer);
+	rv = GetPrivateProfileString ("Init", "debug"       , "0", valuebuffer, sizeof(valuebuffer), "CPUPerf.ini");
+	cpuperfConfig.debug = (atol(valuebuffer)) ? true : false;
+
+	for (i = 0; i < cpuperfConfig.maxcounters; i++) {
+		_ltoa_s(i, ctrValue, sizeof(ctrValue), 10);
+//		GetPrivateProfileString ("Counters", ctrValue, "", valuebuffer, sizeof(valuebuffer), "CPUPerf.ini");
+		GetPrivateProfileString ("Counters", NULL, "", bigBuffer, sizeof(valuebuffer), "CPUPerf.ini");
+		cpuperfConfig.counters[ctrValue] = valuebuffer;
+	}
+
+	return std::string(systemRoot);
+}
+
+
+//-----------------------------------------------------------------------------
+void startCPUPerf(bool serviceFlag)
+{
+	// Init CPUPerf for running
+	std::string					outputPath;
+	std::ostringstream		version;
+	std::string					version2;
+	CLogger*						logger;
+	unsigned int				i;
+	char							s[BUFSIZ];
+	HANDLE						*counterHandles;
+	unsigned int				numCounterHandles;
+
+	outputPath = init();
+
+	version << "Version: " << CPUPERF_VERSION << " - Built: " << __DATE__ << " " __TIME__ << std::ends;
+	version2 = version.str();
+
+	// Create a logger
+	logger = new CLogger(outputPath, serviceFlag);
+	logger->init();
+	logger->writeLine ("-------------------------------------------------------");
+	logger->writeLine ("CPUPerf - Performance monitor for Windows");
+	logger->writeLine (version2);
+	logger->writeLine ("Copyright (c) 2006 Chris Johnson <cej@nightwolf.org.uk>");
+	logger->writeLine ("");
+	logger->writeLine ("Starting CPUPerf...");
+
+	// Initialise counters
+/*
+	if (counterHandles == NULL) {
+		logger->writeLine ("INTERNAL FATAL: Failed to allocate memory for monitor handles");
+	} else {
+		// Let's start monitoring!
+		for (i = 0; i < monitors.size(); i++) {
+			monitors[i]->start();
+			// Put a pause in to try and put a bit of a gap between each class
+			// so they don't all hit the CPU at the same time. This, of course,
+			// is (probably) doomed to failure over the long life-cycle of a 
+			// but it'll help a little bit.
+			Sleep(100);
+		}
+		logger->writeLine ("CPUPerf started.");
+
+		// Now we do nothing until the service is told to shut down.
+		serviceRunState = SERVICE_RUNNING;
+		if (serviceFlag) {
+			while ((serviceRunState != SERVICE_STOP_PENDING) && (serviceRunState != SERVICE_STOPPED)) {
+				Sleep(1000);
+			}
+		} else {
+			logger->writeLine ("-z flag supplied. Running CPUPerf in foreground. Hit <ENTER> in console to stop CPUPerf.");
+			std::cout << "Hit <ENTER> to exit CPUPerf." << std::endl;
+			gets_s(s, sizeof(s));
+		}
+	}
+*/
+	// Start to shut down...
+	logger->writeLine ("CPUPerf stopping...");
+
+	// Cleanly shut down each thread before destruction. First we
+	// tell each thread to stop...
+/*
+	for (i = 0; i < monitors.size(); i++) {
+		if (counterHandles != NULL) {
+			counterHandles[i] = monitors[i]->getThreadHandle();
+		}
+		monitors[i]->stop();
+	}
+	// ... then wait for each thread to singal its completion ...
+	if (counterHandles != NULL) {
+		WaitForMultipleObjects(numCounterHandles, counterHandles, TRUE, 5000);
+	}
+	// ... before saying KILL! KILL! KILL!
+	for (i = 0; i < monitors.size(); i++) {
+		delete monitors[i];
+	}
+	monitors.clear();
+	free (counterHandles);
+
+	// Almost there...
+	*/
+	logger->writeLine ("CPUPerf stopping logger.");
+	delete logger;
+
+	// And that's it. Leaving this function will exit the thread and the service
+	// will be signalled to stop.
+}
+
+//-----------------------------------------------------------------------------
+unsigned int WINAPI startCPUPerfThread(LPVOID params)
+{
+	startCPUPerf (true);
+	return 0;
+}
 
 //-----------------------------------------------------------------------------
 void showLastError()
@@ -67,23 +203,6 @@ void showLastError()
 
 	LocalFree (lpMsgBuf);
 }
-
-//-----------------------------------------------------------------------------
-std::string init()
-{
-	char systemRoot[1024];
-
-	memset (systemRoot, 0, sizeof(systemRoot));
-	GetEnvironmentVariable ("SYSTEMROOT", systemRoot, sizeof(systemRoot) - 1);
-
-	strncat_s (systemRoot, "\\CPUPerf", 8);
-	systemRoot[sizeof(systemRoot) - 1] = 0;
-
-	CreateDirectory (systemRoot, NULL);
-
-	return std::string(systemRoot);
-}
-
 
 //-----------------------------------------------------------------------------
 BOOL InstallService()
@@ -202,114 +321,6 @@ void WINAPI ServiceCtrlHandler(DWORD Opcode)
 			break; 
 	}      
 	return; 
-}
-
-//-----------------------------------------------------------------------------
-void startCPUPerf(bool serviceFlag)
-{
-	// Init CPUPerf for running
-	std::string					outputPath;
-	std::vector<CMonitor *>	monitors;
-	std::ostringstream		version;
-	std::string					version2;
-	CMonitor *					monitor;
-	CLogger*						logger;
-	unsigned int				i;
-	char							s[BUFSIZ];
-	HANDLE						*counterHandles;
-	unsigned int				numCounterHandles;
-
-	outputPath = init();
-
-	version << "Version: " << CPUPERF_VERSION << " - Built: " << __DATE__ << " " __TIME__ << std::ends;
-	version2 = version.str();
-
-	// Create a logger
-	logger = new CLogger(outputPath, serviceFlag);
-	logger->init();
-	logger->writeLine ("-------------------------------------------------------");
-	logger->writeLine ("CPUPerf - Performance monitor for Windows");
-	logger->writeLine (version2);
-	logger->writeLine ("Copyright (c) 2006 Chris Johnson <cej@nightwolf.org.uk>");
-	logger->writeLine ("");
-	logger->writeLine ("Starting CPUPerf...");
-
-	// Initialise monitor classes
-	monitor = (CMonitor *)(new CMonitorUptime(outputPath, logger));
-	monitors.push_back(monitor);
-	monitor = (CMonitor *)(new CMonitorLoadAverage(outputPath, logger));
-	monitors.push_back(monitor);
-	monitor = (CMonitor *)(new CMonitorCPU(outputPath, logger));
-	monitors.push_back(monitor);
-	monitor = (CMonitor *)(new CMonitorMemory(outputPath, logger));
-	monitors.push_back(monitor);
-
-	// Get memory to store handles for monitor threads
-	numCounterHandles = monitors.size();
-	counterHandles = (HANDLE *)calloc(numCounterHandles, sizeof(HANDLE));
-
-	if (counterHandles == NULL) {
-		logger->writeLine ("INTERNAL FATAL: Failed to allocate memory for monitor handles");
-	} else {
-		// Let's start monitoring!
-		for (i = 0; i < monitors.size(); i++) {
-			monitors[i]->start();
-			// Put a pause in to try and put a bit of a gap between each class
-			// so they don't all hit the CPU at the same time. This, of course,
-			// is (probably) doomed to failure over the long life-cycle of a 
-			// but it'll help a little bit.
-			Sleep(100);
-		}
-		logger->writeLine ("CPUPerf started.");
-
-		// Now we do nothing until the service is told to shut down.
-		serviceRunState = SERVICE_RUNNING;
-		if (serviceFlag) {
-			while ((serviceRunState != SERVICE_STOP_PENDING) && (serviceRunState != SERVICE_STOPPED)) {
-				Sleep(1000);
-			}
-		} else {
-			logger->writeLine ("-z flag supplied. Running CPUPerf in foreground. Hit <ENTER> in console to stop CPUPerf.");
-			std::cout << "Hit <ENTER> to exit CPUPerf." << std::endl;
-			gets_s(s, sizeof(s));
-		}
-	}
-
-	// Start to shut down...
-	logger->writeLine ("CPUPerf stopping...");
-
-	// Cleanly shut down each thread before destruction. First we
-	// tell each thread to stop...
-	for (i = 0; i < monitors.size(); i++) {
-		if (counterHandles != NULL) {
-			counterHandles[i] = monitors[i]->getThreadHandle();
-		}
-		monitors[i]->stop();
-	}
-	// ... then wait for each thread to singal its completion ...
-	if (counterHandles != NULL) {
-		WaitForMultipleObjects(numCounterHandles, counterHandles, TRUE, 5000);
-	}
-	// ... before saying KILL! KILL! KILL!
-	for (i = 0; i < monitors.size(); i++) {
-		delete monitors[i];
-	}
-	monitors.clear();
-	free (counterHandles);
-
-	// Almost there...
-	logger->writeLine ("CPUPerf stopping logger.");
-	delete logger;
-
-	// And that's it. Leaving this function will exit the thread and the service
-	// will be signalled to stop.
-}
-
-//-----------------------------------------------------------------------------
-unsigned int WINAPI startCPUPerfThread(LPVOID params)
-{
-	startCPUPerf (true);
-	return 0;
 }
 
 //-----------------------------------------------------------------------------
